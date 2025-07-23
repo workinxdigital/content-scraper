@@ -8,7 +8,7 @@ from selenium.webdriver.chrome.options import Options
 
 app = Flask(__name__)
 
-# --- Proxy & Config ---
+# ─── PROXY CONFIG ──────────────────────────────
 PROXY_HOST = "gate.decodo.com"
 PROXY_PORTS = [10001, 10002, 10003, 10004, 10005, 10006, 10007]
 USERNAME = "spbb3v1soa"
@@ -25,7 +25,7 @@ PRICE_SELECTORS = [
     "#priceblock_saleprice", "#priceblock_businessprice", "#priceblock_pospromoprice"
 ]
 
-# --- Utility Functions ---
+# ─── UTILITY FUNCTIONS ─────────────────────────
 def get_proxy_url():
     port = random.choice(PROXY_PORTS)
     return f"http://{USERNAME}:{PASSWORD}@{PROXY_HOST}:{port}"
@@ -69,8 +69,12 @@ def fetch_full_page(url):
         if driver: driver.quit()
         return None
 
-# --- Parsing Functions ---
-def parse_listing(soup): return {"title": get_text(soup.select_one("#productTitle")), "brand": get_text(soup.select_one("#bylineInfo"))}
+# ─── PARSING FUNCTIONS ─────────────────────────
+def parse_listing(soup): return {
+    "title": get_text(soup.select_one("#productTitle")),
+    "brand": get_text(soup.select_one("#bylineInfo"))
+}
+
 def parse_price_stock(soup):
     for sel in PRICE_SELECTORS:
         p = get_text(soup.select_one(sel))
@@ -79,17 +83,27 @@ def parse_price_stock(soup):
             if match:
                 return {"price": {"value": float(match.group(2).replace(",", "")), "currency": match.group(1)}}
     return {"price": {"value": None, "currency": None}}
-def parse_stock(soup): return {"inStock": "In Stock" in (txt := get_text(soup.select_one("#availability"))) if txt else False}
-def parse_reviews(soup): return {"reviewsCount": int(get_text(soup.select_one("#acrCustomerReviewText")).split()[0].replace(",", ""))}
 
-# --- API Route ---
+def parse_stock(soup): 
+    txt = get_text(soup.select_one("#availability"))
+    return {"inStock": "In Stock" in txt if txt else False}
+
+def parse_reviews(soup): 
+    txt = get_text(soup.select_one("#acrCustomerReviewText"))
+    return {"reviewsCount": int(txt.split()[0].replace(",", "")) if txt else 0}
+
+# ─── ROUTES ─────────────────────────────────────
+@app.route('/')
+def home():
+    return '✅ Scraper is running. Use /scrape?url=... to scrape a product.'
+
 @app.route('/scrape', methods=['GET'])
 def scrape():
     url = request.args.get('url')
     if not url:
         return jsonify({"error": "Missing ?url= param"}), 400
 
-    print(f"Scraping: {url}")
+    print(f"[INFO] Scraping: {url}")
     asin = extract_asin(url)
     html = fetch_static(url) or fetch_full_page(url)
     if not html:
@@ -103,7 +117,7 @@ def scrape():
     result.update(parse_reviews(soup))
     return jsonify(result)
 
-# --- Run the Flask App ---
+# ─── ENTRY POINT ────────────────────────────────
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=8000)
 

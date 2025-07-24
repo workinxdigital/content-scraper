@@ -1,14 +1,12 @@
 from flask import Flask, request, jsonify
 import json, logging, random, re, time
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 
 app = Flask(__name__)
 
-# ─── PROXY CONFIG ──────────────────────────────
+# Proxy Settings (if needed)
 PROXY_HOST = "gate.decodo.com"
 PROXY_PORTS = [10001, 10002, 10003, 10004, 10005, 10006, 10007]
 USERNAME = "spbb3v1soa"
@@ -25,7 +23,6 @@ PRICE_SELECTORS = [
     "#priceblock_saleprice", "#priceblock_businessprice", "#priceblock_pospromoprice"
 ]
 
-# ─── UTILITY FUNCTIONS ─────────────────────────
 def get_proxy_url():
     port = random.choice(PROXY_PORTS)
     return f"http://{USERNAME}:{PASSWORD}@{PROXY_HOST}:{port}"
@@ -39,88 +36,62 @@ def extract_asin(url):
         if m: return m.group(1)
     return None
 
-def fetch_static(url):
+def fetch_html(url):
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    proxies = {"http": get_proxy_url(), "https": get_proxy_url()}
     try:
-        headers = {"User-Agent": random.choice(USER_AGENTS)}
-        proxies = {"http": get_proxy_url(), "https": get_proxy_url()}
-        resp = requests.get(url, headers=headers, proxies=proxies, timeout=15)
+        resp = requests.get(url, headers=headers, proxies=proxies, timeout=20)
         resp.raise_for_status()
         return resp.text
     except Exception as e:
-        print("Static fetch error:", e)
+        print("Fetch error:", e)
         return None
 
-def fetch_full_page(url):
-    driver = None
-    try:
-        opts = Options()
-        opts.add_argument(f"--proxy-server={get_proxy_url()}")
-        opts.add_argument("--headless=new")
-        opts.add_argument("--no-sandbox")
-        opts.add_argument(f"user-agent={random.choice(USER_AGENTS)}")
-        driver = webdriver.Chrome(options=opts)
-        driver.get(url)
-        time.sleep(2)
-        html = driver.page_source
-        driver.quit()
-        return html
-    except Exception as e:
-        print("Selenium fetch error:", e)
-        if driver: driver.quit()
-        return None
-
-# ─── PARSING FUNCTIONS ─────────────────────────
-def parse_listing(soup): return {
-    "title": get_text(soup.select_one("#productTitle")),
-    "brand": get_text(soup.select_one("#bylineInfo"))
-}
-
-def parse_price_stock(soup):
+def parse_data(soup):
+    title = get_text(soup.select_one("#productTitle"))
+    brand = get_text(soup.select_one("#bylineInfo"))
+    
+    price = None
+    currency = None
     for sel in PRICE_SELECTORS:
         p = get_text(soup.select_one(sel))
         if p:
             match = re.match(r"([$\£₹€])\s*([\d,]+\.?\d*)", p)
             if match:
-                return {"price": {"value": float(match.group(2).replace(",", "")), "currency": match.group(1)}}
-    return {"price": {"value": None, "currency": None}}
+                currency, price = match.group(1), float(match.group(2).replace(",", ""))
+                break
 
-def parse_stock(soup): 
-    txt = get_text(soup.select_one("#availability"))
-    return {"inStock": "In Stock" in txt if txt else False}
+    reviews = get_text(soup.select_one("#acrCustomerReviewText"))
+    review_count = int(reviews.split()[0].replace(",", "")) if reviews else 0
 
-def parse_reviews(soup): 
-    txt = get_text(soup.select_one("#acrCustomerReviewText"))
-    return {"reviewsCount": int(txt.split()[0].replace(",", "")) if txt else 0}
+    return {
+        "title": title,
+        "brand": brand,
+        "price": price,
+        "currency": currency,
+        "reviewsCount": review_count
+    }
 
-# ─── ROUTES ─────────────────────────────────────
 @app.route('/')
 def home():
-    return '✅ Scraper is running. Use /scrape?url=... to scrape a product.'
+    return "✅ Scraper is running. Use /scrape?url=... to scrape a product."
 
-@app.route('/scrape', methods=['GET'])
+@app.route('/scrape')
 def scrape():
     url = request.args.get('url')
     if not url:
-        return jsonify({"error": "Missing ?url= param"}), 400
+        return jsonify({"error": "Missing ?url="}), 400
 
-    print(f"[INFO] Scraping: {url}")
     asin = extract_asin(url)
-    html = fetch_static(url) or fetch_full_page(url)
+    html = fetch_html(url)
     if not html:
-        return jsonify({"error": "Failed to fetch page"}), 500
+        return jsonify({"error": "Failed to fetch"}), 500
 
     soup = BeautifulSoup(html, "html.parser")
-    result = {"url": url, "asin": asin}
-    result.update(parse_listing(soup))
-    result.update(parse_price_stock(soup))
-    result.update(parse_stock(soup))
-    result.update(parse_reviews(soup))
-    return jsonify(result)
+    data = parse_data(soup)
+    data.update({"url": url, "asin": asin})
+    return jsonify(data)
 
-# ─── ENTRY POINT ────────────────────────────────
 if __name__ == '__main__':
+    print("✅ Scraper is running. Use /scrape?url=...")
     app.run(host="0.0.0.0", port=8000)
-
-
-
-

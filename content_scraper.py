@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 import traceback
 
 app = Flask(__name__)
-        
+      
 # Proxy Settings
 PROXY_HOST = "gate.decodo.com"
 PROXY_PORTS = [10001, 10002, 10003, 10004, 10005, 10006, 10007]
@@ -13,9 +13,9 @@ PASSWORD = "=rY9v15mUg2AkrbEbk"
 
 # Rotate User-Agents
 USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "Mozilla/5.0 (X11; Linux x86_64)"
 ]
 
 # Price selectors (may need updating over time)
@@ -59,48 +59,29 @@ def fetch_html(url):
     return None
 
 def parse_data(soup):
-    try:
-        title = get_text(soup.select_one("#productTitle"))
-        brand = get_text(soup.select_one("#bylineInfo"))
+    title = get_text(soup.select_one("#productTitle"))
+    brand = get_text(soup.select_one("#bylineInfo"))
 
-        price, currency = None, None
-        for sel in PRICE_SELECTORS:
-            price_element = soup.select_one(sel)
-            if price_element:
-                price_text = get_text(price_element)
-                if price_text:
-                    match = re.search(r"([$\£₹€])\s*([\d,]+\.?\d*)", price_text)
-                    if match:
-                        currency = match.group(1)
-                        price = float(match.group(2).replace(",", ""))
-                        break
+    price, currency = None, None
+    for sel in PRICE_SELECTORS:
+        price_text = get_text(soup.select_one(sel))
+        if price_text:
+            match = re.search(r"([$\£₹€])\s*([\d,]+\.?\d*)", price_text)
+            if match:
+                currency = match.group(1)
+                price = float(match.group(2).replace(",", ""))
+                break
 
-        reviews_element = soup.select_one("#acrCustomerReviewText")
-        review_count = 0
-        if reviews_element:
-            reviews_text = get_text(reviews_element)
-            if reviews_text:
-                try:
-                    review_count = int(reviews_text.split()[0].replace(",", ""))
-                except (ValueError, IndexError):
-                    review_count = 0
+    reviews = get_text(soup.select_one("#acrCustomerReviewText"))
+    review_count = int(reviews.split()[0].replace(",", "")) if reviews else 0
 
-        return {
-            "title": title,
-            "brand": brand,
-            "price": price,
-            "currency": currency,
-            "reviewsCount": review_count
-        }
-    except Exception as e:
-        print(f"❌ Error in parse_data: {str(e)}")
-        return {
-            "title": None,
-            "brand": None,
-            "price": None,
-            "currency": None,
-            "reviewsCount": 0
-        }
+    return {
+        "title": title,
+        "brand": brand,
+        "price": price,
+        "currency": currency,
+        "reviewsCount": review_count
+    }
 
 @app.route('/')
 def home():
@@ -108,32 +89,26 @@ def home():
 
 @app.route('/scrape')
 def scrape():
-    try:
-        url = request.args.get("url")
-        print("📥 Received URL:", url)
+    url = request.args.get("url")
+    print("📥 Received URL:", url)
 
-        if not url:
-            return jsonify({"error": "Missing ?url= parameter"}), 400
+    if not url:
+        return jsonify({"error": "Missing ?url= parameter"}), 400
 
-        asin = extract_asin(url)
-        print("🔍 ASIN:", asin)
+    asin = extract_asin(url)
+    print("🔍 ASIN:", asin)
 
-        html = fetch_html(url)
-        if not html:
-            return jsonify({"error": "Failed to fetch page"}), 500
+    html = fetch_html(url)
+    if not html:
+        return jsonify({"error": "Failed to fetch page"}), 500
 
-        soup = BeautifulSoup(html, "html.parser")
-        data = parse_data(soup)
-        data.update({"url": url, "asin": asin})
+    soup = BeautifulSoup(html, "html.parser")
+    data = parse_data(soup)
+    data.update({"url": url, "asin": asin})
 
-        print("✅ Scraped Data:", data)
-        return jsonify(data)
-    
-    except Exception as e:
-        print("❌ Error in /scrape:", str(e))
-        traceback.print_exc()
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
-    
+    print("✅ Scraped Data:", data)
+    return jsonify(data)
+  
 @app.route('/scrape2')
 def scrape_v2():
     url = request.args.get('url')
@@ -142,14 +117,12 @@ def scrape_v2():
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
         }
         response = requests.get(url, headers=headers)
-        print("Status code:", response.status_code)
-        print("Response content:", response.text[:500])
+        # your scraping logic here
         return "Success"
     except Exception as e:
         print("Error:", e)
-        traceback.print_exc()
+        traceback.print_exc()  # This prints the full stack trace
         return "Internal Server Error", 500
-
 if __name__ == '__main__':
     print("🚀 Amazon Scraper running on port 8000")
     app.run(host="0.0.0.0", port=8000)

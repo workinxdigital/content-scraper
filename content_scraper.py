@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import traceback
 from urllib.parse import urlparse
 import logging
+import json
 
 app = Flask(__name__)
 
@@ -17,343 +18,232 @@ PROXY_PORTS = [10001, 10002, 10003, 10004, 10005, 10006, 10007]
 USERNAME = "spbb3v1soa"
 PASSWORD = "=rY9v15mUg2AkrbEbk"
 
-# Enhanced User-Agents with more variety
+# More realistic User-Agents
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 ]
 
-# Comprehensive price selectors
+# Comprehensive selectors
 PRICE_SELECTORS = [
     ".a-price .a-offscreen",
     "#priceblock_ourprice",
-    "#priceblock_dealprice", 
-    "#priceblock_saleprice",
-    "#priceblock_businessprice",
-    "#priceblock_pospromoprice",
+    "#priceblock_dealprice",
+    "#priceblock_saleprice", 
     ".a-price-whole",
     ".a-price-fraction",
-    ".a-price-symbol",
     "[data-a-price] .a-offscreen",
-    ".a-price.a-text-price.a-size-medium.apexPriceToPay .a-offscreen",
-    ".a-price-range .a-offscreen"
-]
-
-# Title selectors (fallbacks)
-TITLE_SELECTORS = [
-    "#productTitle",
-    ".product-title",
-    "h1.a-size-large",
-    "h1 span"
-]
-
-# Brand selectors
-BRAND_SELECTORS = [
-    "#bylineInfo",
-    ".a-row .a-size-small span.a-color-secondary",
-    "[data-brand]",
-    ".po-brand .po-break-word"
+    ".a-price.a-text-price .a-offscreen"
 ]
 
 def get_proxy_url():
-    """Get a random proxy URL"""
     port = random.choice(PROXY_PORTS)
     return f"http://{USERNAME}:{PASSWORD}@{PROXY_HOST}:{port}"
 
-def get_enhanced_headers():
-    """Get enhanced headers to mimic real browser"""
-    return {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
+def get_realistic_headers():
+    """Generate more realistic headers"""
+    user_agent = random.choice(USER_AGENTS)
+    
+    # Extract browser info from user agent
+    is_chrome = "Chrome" in user_agent
+    is_firefox = "Firefox" in user_agent
+    is_safari = "Safari" in user_agent and "Chrome" not in user_agent
+    
+    headers = {
+        "User-Agent": user_agent,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "DNT": "1",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
+        "Cache-Control": "max-age=0",
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"' if "Windows" in user_agent else '"macOS"',
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
         "Sec-Fetch-Site": "none",
-        "Cache-Control": "max-age=0"
+        "Sec-Fetch-User": "?1"
     }
+    
+    if is_chrome:
+        headers["sec-ch-ua"] = '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"'
+    
+    return headers
 
 def validate_url(url):
-    """Validate if URL is a proper Amazon product URL"""
     try:
         parsed = urlparse(url)
-        if not parsed.scheme or not parsed.netloc:
-            return False
-        
-        # Check if it's an Amazon domain
         amazon_domains = ['amazon.com', 'amazon.co.uk', 'amazon.de', 'amazon.fr', 'amazon.it', 'amazon.es', 'amazon.ca', 'amazon.in']
-        is_amazon = any(domain in parsed.netloc.lower() for domain in amazon_domains)
-        
-        return is_amazon
+        return any(domain in parsed.netloc.lower() for domain in amazon_domains)
     except:
         return False
 
-def get_text(element):
-    """Safely extract text from BeautifulSoup element"""
-    return element.get_text(strip=True) if element else None
-
 def extract_asin(url):
-    """Extract ASIN from Amazon URL with multiple patterns"""
     patterns = [
         r"/dp/([A-Z0-9]{10})",
-        r"/gp/product/([A-Z0-9]{10})", 
-        r"/product/([A-Z0-9]{10})",
+        r"/gp/product/([A-Z0-9]{10})",
         r"asin=([A-Z0-9]{10})",
         r"/([A-Z0-9]{10})(?:[/?]|$)"
     ]
-    
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
             return match.group(1)
     return None
 
-def fetch_html(url, use_proxy=True):
-    """Fetch HTML with enhanced error handling and retry logic"""
-    headers = get_enhanced_headers()
+def fetch_with_session(url, use_proxy=True, max_attempts=3):
+    """Use session for better cookie/state management"""
+    session = requests.Session()
     
-    # Setup proxies if enabled
-    proxies = None
-    if use_proxy:
+    for attempt in range(max_attempts):
         try:
-            proxy_url = get_proxy_url()
-            proxies = {"http": proxy_url, "https": proxy_url}
-        except Exception as e:
-            logger.warning(f"Proxy setup failed: {e}")
-            proxies = None
-
-    for attempt in range(5):  # Increased retry attempts
-        try:
-            logger.info(f"🔄 Attempt {attempt + 1} - Fetching: {url}")
+            headers = get_realistic_headers()
+            session.headers.update(headers)
             
-            # Randomize delay between requests
+            # Setup proxy
+            if use_proxy:
+                proxy_url = get_proxy_url()
+                session.proxies = {"http": proxy_url, "https": proxy_url}
+            
+            logger.info(f"🔄 Session attempt {attempt + 1} - Fetching: {url}")
+            
+            # Add random delay
             if attempt > 0:
-                delay = random.uniform(2, 5)
-                logger.info(f"⏳ Waiting {delay:.1f}s before retry...")
+                delay = random.uniform(5, 10)
+                logger.info(f"⏳ Waiting {delay:.1f}s...")
                 time.sleep(delay)
             
-            response = requests.get(
-                url, 
-                headers=headers, 
-                proxies=proxies, 
-                timeout=30,
-                allow_redirects=True
-            )
+            # First, visit Amazon homepage to get cookies
+            if attempt == 0:
+                logger.info("🏠 Visiting Amazon homepage first...")
+                home_url = "https://www.amazon.com"
+                session.get(home_url, timeout=15)
+                time.sleep(random.uniform(2, 4))
             
-            logger.info(f"📊 Status Code: {response.status_code}")
+            # Now fetch the product page
+            response = session.get(url, timeout=30)
+            logger.info(f"📊 Status: {response.status_code}")
             
-            # Check for common blocking responses
-            if response.status_code == 503:
-                logger.warning("🚫 Service unavailable (503)")
-                continue
+            # Check response
+            if response.status_code == 200:
+                content = response.text.lower()
                 
-            if response.status_code == 429:
-                logger.warning("🚫 Rate limited (429)")
-                time.sleep(10)
-                continue
-            
-            # Check for CAPTCHA
-            response_text = response.text.lower()
-            if any(keyword in response_text for keyword in ['captcha', 'robot', 'automated']):
-                logger.warning("🛑 CAPTCHA/Bot detection triggered")
-                # Try without proxy on next attempt
-                if use_proxy and attempt < 2:
-                    proxies = None
-                continue
-            
-            response.raise_for_status()
-            
-            # Validate response content
-            if len(response.text) < 1000:
-                logger.warning("⚠️ Response too short, might be blocked")
-                continue
+                # More sophisticated CAPTCHA detection
+                captcha_indicators = [
+                    'captcha', 'robot', 'automated', 'unusual traffic',
+                    'security check', 'verify you are human', 'prove you are not a robot'
+                ]
                 
-            logger.info("✅ Successfully fetched HTML")
-            return response.text
+                if any(indicator in content for indicator in captcha_indicators):
+                    logger.warning("🛑 CAPTCHA/Bot detection triggered")
+                    continue
+                
+                if len(response.text) < 10000:  # Amazon pages are usually large
+                    logger.warning("⚠️ Response too short, likely blocked")
+                    continue
+                
+                logger.info("✅ Successfully fetched page")
+                return response.text
             
-        except requests.exceptions.Timeout:
-            logger.warning(f"⏰ Timeout on attempt {attempt + 1}")
-        except requests.exceptions.ProxyError:
-            logger.warning(f"🔌 Proxy error on attempt {attempt + 1}")
-            proxies = None  # Disable proxy for next attempt
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"🌐 Request error on attempt {attempt + 1}: {str(e)}")
         except Exception as e:
-            logger.error(f"❌ Unexpected error on attempt {attempt + 1}: {str(e)}")
+            logger.warning(f"❌ Attempt {attempt + 1} failed: {str(e)}")
+            time.sleep(random.uniform(3, 6))
     
-    logger.error("💥 All fetch attempts failed")
     return None
 
-def extract_price_info(soup):
-    """Extract price with multiple fallback methods"""
-    price, currency = None, None
+def extract_data_from_html(html):
+    """Extract product data with multiple methods"""
+    soup = BeautifulSoup(html, "html.parser")
     
-    # Method 1: Try standard selectors
-    for selector in PRICE_SELECTORS:
-        try:
-            elements = soup.select(selector)
-            for element in elements:
-                price_text = get_text(element)
-                if price_text:
-                    # Enhanced price regex
-                    match = re.search(r'([₹$£€¥₩])\s*([\d,]+\.?\d*)', price_text)
-                    if match:
-                        currency = match.group(1)
-                        price_str = match.group(2).replace(',', '')
-                        try:
-                            price = float(price_str)
-                            return price, currency
-                        except ValueError:
-                            continue
-        except Exception as e:
-            logger.debug(f"Price extraction error for {selector}: {e}")
-            continue
-    
-    # Method 2: Look for price in JSON-LD structured data
+    # Method 1: Try to extract from JSON-LD structured data first
     try:
         scripts = soup.find_all('script', type='application/ld+json')
         for script in scripts:
-            import json
-            data = json.loads(script.string)
-            if isinstance(data, dict) and 'offers' in data:
-                offers = data['offers']
-                if isinstance(offers, dict) and 'price' in offers:
-                    price = float(offers['price'])
-                    currency = offers.get('priceCurrency', '$')
-                    return price, currency
-    except:
-        pass
-    
-    return price, currency
-
-def extract_title(soup):
-    """Extract title with multiple fallback selectors"""
-    for selector in TITLE_SELECTORS:
-        try:
-            element = soup.select_one(selector)
-            if element:
-                title = get_text(element)
-                if title and len(title.strip()) > 0:
-                    return title.strip()
-        except:
-            continue
-    return None
-
-def extract_brand(soup):
-    """Extract brand with multiple fallback selectors"""
-    for selector in BRAND_SELECTORS:
-        try:
-            element = soup.select_one(selector)
-            if element:
-                brand_text = get_text(element)
-                if brand_text:
-                    # Clean up brand text
-                    brand = re.sub(r'^(by|visit the|brand:)\s*', '', brand_text, flags=re.IGNORECASE)
-                    return brand.strip()
-        except:
-            continue
-    return None
-
-def extract_reviews_count(soup):
-    """Extract review count with multiple methods"""
-    selectors = [
-        "#acrCustomerReviewText",
-        "[data-hook='total-review-count']",
-        ".a-link-normal .a-size-base",
-        "#reviewsMedley .a-link-normal"
-    ]
-    
-    for selector in selectors:
-        try:
-            element = soup.select_one(selector)
-            if element:
-                reviews_text = get_text(element)
-                if reviews_text:
-                    # Extract number from text like "1,234 ratings" or "1,234 customer reviews"
-                    match = re.search(r'([\d,]+)', reviews_text.replace(',', ''))
-                    if match:
+            if script.string:
+                data = json.loads(script.string)
+                if isinstance(data, dict):
+                    # Extract from structured data
+                    title = data.get('name')
+                    brand = data.get('brand', {}).get('name') if isinstance(data.get('brand'), dict) else data.get('brand')
+                    
+                    offers = data.get('offers', {})
+                    if isinstance(offers, dict):
+                        price_text = offers.get('price')
+                        currency = offers.get('priceCurrency', '$')
                         try:
-                            return int(match.group(1).replace(',', ''))
-                        except ValueError:
-                            continue
-        except:
-            continue
-    return 0
-
-def extract_rating(soup):
-    """Extract product rating"""
-    selectors = [
-        "[data-hook='average-star-rating'] .a-icon-alt",
-        ".a-icon-alt",
-        "[aria-label*='out of 5 stars']"
-    ]
+                            price = float(price_text) if price_text else None
+                        except:
+                            price = None
+                    else:
+                        price, currency = None, None
+                    
+                    if title:  # If we found structured data
+                        return {
+                            "title": title,
+                            "brand": brand,
+                            "price": price,
+                            "currency": currency,
+                            "method": "structured_data"
+                        }
+    except Exception as e:
+        logger.debug(f"Structured data extraction failed: {e}")
     
-    for selector in selectors:
-        try:
+    # Method 2: Traditional HTML parsing
+    try:
+        # Title
+        title = None
+        title_selectors = ["#productTitle", "h1.a-size-large", ".product-title"]
+        for selector in title_selectors:
             element = soup.select_one(selector)
             if element:
-                rating_text = element.get('aria-label', '') or get_text(element) or ''
-                match = re.search(r'([\d.]+)\s*out of', rating_text)
-                if match:
-                    try:
-                        return float(match.group(1))
-                    except ValueError:
-                        continue
-        except:
-            continue
-    return None
-
-def parse_data(soup):
-    """Parse all product data with comprehensive error handling"""
-    try:
-        # Extract all data points
-        title = extract_title(soup)
-        brand = extract_brand(soup)
-        price, currency = extract_price_info(soup)
-        review_count = extract_reviews_count(soup)
-        rating = extract_rating(soup)
+                title = element.get_text(strip=True)
+                break
         
-        # Extract availability
-        availability = None
-        availability_selectors = ["#availability span", ".a-color-success", ".a-color-price"]
-        for selector in availability_selectors:
-            try:
-                element = soup.select_one(selector)
-                if element:
-                    availability = get_text(element)
-                    break
-            except:
-                continue
+        # Brand
+        brand = None
+        brand_selectors = ["#bylineInfo", ".a-row .a-size-small span.a-color-secondary"]
+        for selector in brand_selectors:
+            element = soup.select_one(selector)
+            if element:
+                brand_text = element.get_text(strip=True)
+                brand = re.sub(r'^(by|visit the|brand:)\s*', '', brand_text, flags=re.IGNORECASE)
+                break
+        
+        # Price
+        price, currency = None, None
+        for selector in PRICE_SELECTORS:
+            element = soup.select_one(selector)
+            if element:
+                price_text = element.get_text(strip=True)
+                match = re.search(r'([₹$£€¥₩])\s*([\d,]+\.?\d*)', price_text)
+                if match:
+                    currency = match.group(1)
+                    try:
+                        price = float(match.group(2).replace(',', ''))
+                        break
+                    except:
+                        continue
         
         return {
             "title": title,
             "brand": brand,
             "price": price,
             "currency": currency,
-            "rating": rating,
-            "reviewsCount": review_count,
-            "availability": availability,
-            "success": True
+            "method": "html_parsing"
         }
         
     except Exception as e:
-        logger.error(f"❌ Error in parse_data: {str(e)}")
+        logger.error(f"HTML parsing failed: {e}")
         return {
             "title": None,
             "brand": None,
             "price": None,
             "currency": None,
-            "rating": None,
-            "reviewsCount": 0,
-            "availability": None,
-            "success": False,
+            "method": "failed",
             "error": str(e)
         }
 
@@ -361,89 +251,88 @@ def parse_data(soup):
 def home():
     return jsonify({
         "status": "running",
-        "message": "✅ Amazon Scraper API is running",
+        "message": "✅ Enhanced Amazon Scraper API",
         "endpoints": {
-            "/scrape": "Scrape Amazon product data",
-            "/health": "Health check",
-            "/test": "Test with a simple URL"
-        },
-        "usage": "/scrape?url=AMAZON_PRODUCT_URL"
+            "/scrape": "Scrape Amazon product (with proxy)",
+            "/scrape_no_proxy": "Scrape without proxy",
+            "/health": "Health check"
+        }
     })
 
 @app.route('/health')
 def health():
     return jsonify({"status": "healthy", "timestamp": time.time()})
 
-@app.route('/test')
-def test():
-    """Test endpoint with a simple HTTP request"""
-    try:
-        url = request.args.get('url', 'https://httpbin.org/get')
-        headers = get_enhanced_headers()
-        response = requests.get(url, headers=headers, timeout=10)
-        
-        return jsonify({
-            "status": "success",
-            "url": url,
-            "status_code": response.status_code,
-            "response_length": len(response.text),
-            "headers_sent": dict(headers)
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
-
 @app.route('/scrape')
 def scrape():
     try:
         url = request.args.get("url")
-        use_proxy = request.args.get("proxy", "true").lower() == "true"
-        
-        logger.info(f"📥 Received scrape request for: {url}")
         
         if not url:
-            return jsonify({"error": "Missing ?url= parameter", "success": False}), 400
+            return jsonify({"error": "Missing ?url= parameter"}), 400
         
-        # Validate URL
         if not validate_url(url):
-            return jsonify({"error": "Invalid Amazon URL", "success": False}), 400
+            return jsonify({"error": "Invalid Amazon URL"}), 400
         
-        # Extract ASIN
         asin = extract_asin(url)
         logger.info(f"🔍 ASIN: {asin}")
         
-        # Fetch HTML
-        html = fetch_html(url, use_proxy=use_proxy)
+        # Try with proxy first
+        html = fetch_with_session(url, use_proxy=True)
+        
+        if not html:
+            logger.info("🔄 Retrying without proxy...")
+            html = fetch_with_session(url, use_proxy=False)
+        
         if not html:
             return jsonify({
-                "error": "Failed to fetch page after multiple attempts", 
-                "success": False,
-                "suggestion": "Try again later or check if the URL is accessible"
+                "error": "Failed to fetch page - Amazon is blocking requests",
+                "suggestion": "Try again later or use a different approach",
+                "asin": asin
             }), 500
         
-        # Parse HTML
-        soup = BeautifulSoup(html, "html.parser")
-        data = parse_data(soup)
-        
-        # Add metadata
+        # Extract data
+        data = extract_data_from_html(html)
         data.update({
             "url": url,
             "asin": asin,
-            "scraped_at": time.time(),
-            "proxy_used": use_proxy
+            "scraped_at": time.time()
         })
         
-        logger.info(f"✅ Scraped data: {data}")
+        logger.info(f"✅ Extracted: {data}")
         return jsonify(data)
-    
+        
     except Exception as e:
-        logger.error(f"❌ Error in /scrape: {str(e)}")
+        logger.error(f"❌ Error: {str(e)}")
         traceback.print_exc()
-        return jsonify({
-            "error": "Internal server error", 
-            "details": str(e),
-            "success": False
-        }), 500
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500
+
+@app.route('/scrape_no_proxy')
+def scrape_no_proxy():
+    """Scrape without using proxy"""
+    try:
+        url = request.args.get("url")
+        
+        if not url:
+            return jsonify({"error": "Missing ?url= parameter"}), 400
+        
+        if not validate_url(url):
+            return jsonify({"error": "Invalid Amazon URL"}), 400
+        
+        asin = extract_asin(url)
+        html = fetch_with_session(url, use_proxy=False)
+        
+        if not html:
+            return jsonify({"error": "Failed to fetch page"}), 500
+        
+        data = extract_data_from_html(html)
+        data.update({"url": url, "asin": asin, "proxy_used": False})
+        
+        return jsonify(data)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    logger.info("🚀 Starting Amazon Scraper on port 8000")
+    logger.info("🚀 Starting Enhanced Amazon Scraper")
     app.run(host="0.0.0.0", port=8000, debug=False)

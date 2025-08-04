@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 import requests, random, re, time
 from bs4 import BeautifulSoup
-
+import traceback
 app = Flask(__name__)
+
+
 @app.route('/scrape')
 def scrape():
     url = request.args.get('url')
@@ -11,10 +13,11 @@ def scrape():
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
         }
         response = requests.get(url, headers=headers)
-        # your scraping logic here, e.g., parse response.text
+        # your scraping logic here
         return "Success"
     except Exception as e:
-        print(f"Error: {e}")
+        print("Error:", e)
+        traceback.print_exc()  # This prints the full stack trace
         return "Internal Server Error", 500
         
 # Proxy Settings
@@ -124,4 +127,5 @@ def scrape():
 if __name__ == '__main__':
     print("🚀 Amazon Scraper running on port 8000")
     app.run(host="0.0.0.0", port=8000)
+
 

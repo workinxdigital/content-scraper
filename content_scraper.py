@@ -5,8 +5,8 @@ import traceback
 app = Flask(__name__)
 
 
-@app.route('/scrape')
-def scrape():
+@app.route('/scrape_advanced')  
+def scrape_advanced():
     url = request.args.get('url')
     try:
         headers = {
@@ -127,5 +127,6 @@ def scrape():
 if __name__ == '__main__':
     print("🚀 Amazon Scraper running on port 8000")
     app.run(host="0.0.0.0", port=8000)
+
 
 
